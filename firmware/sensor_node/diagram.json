@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "author": "WSN Lab 1 Team",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -110,
+      "left": 260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr1",
+      "top": 10,
+      "left": 260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pir-motion-sensor",
+      "id": "pir1",
+      "top": 130,
+      "left": 260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": 260,
+      "left": 270,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 262,
+      "left": 220,
+      "rotate": 90,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer1",
+      "top": 340,
+      "left": 260,
+      "attrs": { "volume": "0.2" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+
+    [ "dht1:VCC", "esp:3V3",   "red",    [ "v0" ] ],
+    [ "dht1:GND", "esp:GND.1", "black",  [ "v0" ] ],
+    [ "dht1:SDA", "esp:D4",    "green",  [ "v0" ] ],
+
+    [ "ldr1:VCC", "esp:3V3",   "red",    [ "v0" ] ],
+    [ "ldr1:GND", "esp:GND.1", "black",  [ "v0" ] ],
+    [ "ldr1:AO",  "esp:D34",   "yellow", [ "v0" ] ],
+
+    [ "pir1:VCC", "esp:3V3",   "red",    [ "v0" ] ],
+    [ "pir1:GND", "esp:GND.2", "black",  [ "v0" ] ],
+    [ "pir1:OUT", "esp:D27",   "orange", [ "v0" ] ],
+
+    [ "esp:D26",  "r1:2",      "blue",   [ "v0" ] ],
+    [ "r1:1",     "led1:A",    "blue",   [ "v0" ] ],
+    [ "led1:C",   "esp:GND.2", "black",  [ "v0" ] ],
+
+    [ "esp:D25",  "buzzer1:2", "purple", [ "v0" ] ],
+    [ "buzzer1:1","esp:GND.2", "black",  [ "v0" ] ]
+  ]
+}
