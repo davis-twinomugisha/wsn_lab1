@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Original-format report builder",
+  "dependencies": {
+    "docx": "^9.5.1"
+  }
+}

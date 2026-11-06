@@ -1,0 +1,57 @@
+{
+  "source_file": "sensor_data_light_regimes_720rows.csv",
+  "observations": 720,
+  "meets_600_row_minimum": true,
+  "missing_source_cells": 0,
+  "rows_flagged_by_numeric_range_checks": 0,
+  "identical_source_rows_retained": 1,
+  "measured_duration_seconds": null,
+  "duration_if_one_second_interval_seconds": 719,
+  "motion_positive_samples": 211,
+  "motion_runs_observed": 139,
+  "new_motion_rising_edges": 139,
+  "high_temperature_samples_above_28c": 215,
+  "high_temperature_runs_observed": 155,
+  "high_temperature_active_at_first_sample": true,
+  "new_high_temperature_rising_edges": 154,
+  "samples_above_30c": 0,
+  "samples_with_motion_and_high_temperature": 49,
+  "samples_with_either_condition": 377,
+  "temperature_status_mismatches_at_28c_18c": 20,
+  "motion_status_mismatches": 0,
+  "source_labelled_high_temperature_samples": 235,
+  "source_labelled_high_temperature_runs": 160,
+  "printed_28c_rows_labelled_high": 20,
+  "ma5_warmup_samples": 4,
+  "assumed_sample_interval_seconds": null,
+  "source_labelled_high_temperature_new_edges": 159,
+  "source_labelled_high_and_motion_samples": 52,
+  "source_labelled_high_or_motion_samples": 394,
+  "recorded_temperature_std_on_ma5_rows": 0.8737246997533585,
+  "additional_ma5_temperature_std": 0.3948080397961648,
+  "statistics": {
+    "temperature": {
+      "count": 720.0,
+      "mean": 27.472916666666666,
+      "min": 26.0,
+      "max": 29.0,
+      "std": 0.873836898337263
+    },
+    "humidity": {
+      "count": 720.0,
+      "mean": 46.79638888888888,
+      "min": 46.0,
+      "max": 47.5,
+      "std": 0.24503586383106626
+    },
+    "light_pct": {
+      "count": 720.0,
+      "mean": 87.910625,
+      "min": 15.08,
+      "max": 100.0,
+      "std": 18.860447314554246
+    }
+  },
+  "source_sha256": "061a05d9a00fc9fac238ebe99a821b1414c165688bdb97f2ea7ccf1ff4ecef9f",
+  "analysis_date": "6 November 2026"
+}

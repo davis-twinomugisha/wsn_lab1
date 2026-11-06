@@ -12,8 +12,8 @@ there and re-run to refine the model.
 
 Two models are fitted:
 
-- **Offset model** `T_cal = T_sensor + b` — the primary model. With only two
-  pairs it leaves residuals, so its before/after error is meaningful.
+- **Offset model** `T_cal = T_sensor + b` — the primary model. Its residuals describe the same two pairs used to fit the offset.
+  They are fitting errors, not independent validation accuracy.
 - **Linear model** `T_cal = a·T_sensor + b` — reported for completeness. With
   two pairs a line passes through both points exactly, so its "after" error
   is zero by construction and says nothing about accuracy. It needs five or

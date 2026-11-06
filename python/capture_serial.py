@@ -1,64 +1,42 @@
+"""Capture a new serial log with host receipt timestamps. Requires pyserial.
+Usage: python python/capture_serial.py --port COM6 --rows 600
+The device counter is retained as a counter, not interpreted as elapsed seconds.
 """
-Record the Arduino's Serial Monitor output straight into a CSV file.
-
-How to use (Windows):
-  1. Close the Serial Monitor in the Arduino IDE (only one program can use COM6).
-  2. Open Command Prompt in the folder where this file is.
-  3. Type:   python capture_serial.py
-  4. Press the RESET button on the Arduino when it says so.
-  5. Wait 15 minutes. The file hardware_serial_log.csv appears in the same folder.
-     (Press Ctrl+C to stop early -- everything recorded so far is still saved.)
-"""
-import csv
-import time
-
-import serial   # installed with:  pip install pyserial
-
-PORT = "COM6"          # same port the Arduino IDE shows at the bottom right
-BAUD = 115200          # same speed as Serial.begin(115200) in the code
-DURATION_S = 15 * 60   # 15 minutes
-OUT_FILE = "hardware_serial_log.csv"
-
-
-def is_header(line):
-    return line.split(",")[0].strip().lower() in ("timestamp", "sample")
-
+import argparse,csv,time
+from pathlib import Path
+import serial
 
 def main():
-    ser = serial.Serial(PORT, BAUD, timeout=2)
-    time.sleep(2)
-    print(f"Connected to {PORT}. Press RESET on the Arduino now.")
-    print(f"Recording for {DURATION_S // 60} minutes -- press Ctrl+C to stop early.\n")
+ p=argparse.ArgumentParser(description=__doc__)
+ p.add_argument('--port',required=True)
+ p.add_argument('--baud',type=int,default=115200)
+ p.add_argument('--rows',type=int,default=600)
+ p.add_argument('--timeout',type=float,default=1800)
+ p.add_argument('--output',default='data/raw/hardware_timestamped.csv')
+ a=p.parse_args()
+ if a.rows<1:raise ValueError('rows must be positive')
+ output=Path(a.output);output.parent.mkdir(parents=True,exist_ok=True)
+ mapping={'temp':'temperature','light':'light_pct','timestamp':'device_counter'}
+ count=0;header=None;writer=None;first=None;deadline=time.monotonic()+a.timeout
+ with serial.Serial(a.port,a.baud,timeout=2) as ser, output.open('w',newline='') as f:
+  print('Close the Arduino Serial Monitor. Reset the board to emit its CSV header.')
+  while count<a.rows and time.monotonic()<deadline:
+   parts=ser.readline().decode(errors='replace').strip().split(',')
+   if len(parts)<2:continue
+   if parts[0] in ('timestamp','temperature','sample'):
+    incoming=[mapping.get(x,x) for x in parts]
+    if header is not None and incoming!=header:raise ValueError('CSV schema changed during capture')
+    header=incoming
+    if writer is None:
+     writer=csv.DictWriter(f,fieldnames=['host_elapsed_s']+header);writer.writeheader()
+    continue
+   if header is None or len(parts)!=len(header):continue
+   now=time.monotonic()
+   if first is None:first=now
+   writer.writerow({'host_elapsed_s':f'{now-first:.6f}',**dict(zip(header,parts))})
+   count+=1
+  f.flush()
+ print(f'Saved {count} rows to {output}')
+ if count<a.rows:raise SystemExit('Capture ended before the requested number of rows.')
 
-    header, rows = None, []
-    start = time.time()
-    try:
-        while time.time() - start < DURATION_S:
-            line = ser.readline().decode(errors="ignore").strip()
-            if not line or "," not in line:
-                continue                      # skip blank lines and start-up messages
-            print(line)                        # show it on screen like the Serial Monitor
-            if is_header(line):
-                header, rows = line.split(","), []
-                continue
-            rows.append(line.split(","))
-    except KeyboardInterrupt:
-        print("\nStopped early.")
-    finally:
-        ser.close()
-
-    if not rows:
-        print("No data received. Check the port name and that the Serial Monitor is closed.")
-        return
-    if header is None:
-        header = [f"col{i}" for i in range(len(rows[0]))]
-        print("Note: no header row was seen (RESET wasn't pressed) -- columns named col0, col1, ...")
-    good = [r for r in rows if len(r) == len(header)]
-    with open(OUT_FILE, "w", newline="") as f:
-        csv.writer(f).writerow(header)
-        csv.writer(f).writerows(good)
-    print(f"\nSaved {len(good)} rows to {OUT_FILE}")
-
-
-if __name__ == "__main__":
-    main()
+if __name__=='__main__':main()

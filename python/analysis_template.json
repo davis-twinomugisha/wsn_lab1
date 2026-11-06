@@ -1,0 +1,86 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": "# WSN Lab 1: Arduino recording analysis\n\nThis is the primary analysis of data/raw/sensor_data_light_regimes_720rows.csv.\nThe 720 supplied records are preserved. Generated light variants are excluded.\nThe older Wokwi and synthetic reference files are retained separately.\n\nNo timestamps or independently logged raw temperature are present. Default plots show\nsample number. The source temperature may already include the Arduino moving average,\nso the offline comparison is recorded temperature versus additional five-sample smoothing.\nNo second calibration offset is applied to the CSV. Calibration state at capture is not recorded.\nThe prototype firmware estimates humidity from temperature; the CSV alone does not establish\nindependent humidity measurement. Physical firmware execution is distinct from offline arithmetic.\n",
+   "id": "arduino-00"
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": "from pathlib import Path\nimport hashlib, json\nimport numpy as np\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\nfilename = 'sensor_data_light_regimes_720rows.csv'\ncandidates = [Path.cwd(), Path.cwd().parent]\nif '__file__' in globals():\n    candidates.insert(0, Path(__file__).resolve().parents[1])\nROOT = next((p for p in candidates if (p / 'data/raw' / filename).exists()), None)\nif ROOT is None:\n    raise FileNotFoundError('Extract the full ZIP, then open python/analysis.ipynb.')\nRAW_PATH = ROOT / 'data/raw' / filename\nFIG_DIR = ROOT / 'figures'\nOUT_DIR = ROOT / 'data/processed'\nFIG_DIR.mkdir(exist_ok=True)\nOUT_DIR.mkdir(exist_ok=True)\nWINDOW = 5\nHIGH_THRESHOLD_C = 28.0  # device configuration, not the guide's illustrative 30 C\nSAMPLE_INTERVAL_S = None  # no time interval has been verified\n\nsource = pd.read_csv(RAW_PATH)\nexpected = ['temperature', 'humidity', 'light_pct', 'motion', 'temp_status', 'motion_status']\nif not set(expected).issubset(source.columns):\n    raise ValueError('Unexpected source columns; review the mapping before proceeding.')\nd = source.copy(deep=True)\nd.insert(0, 'sample_number', np.arange(1, len(d) + 1))\nprint('Observations:', len(d))\nprint('Original source SHA-256:', hashlib.sha256(RAW_PATH.read_bytes()).hexdigest())\nprint(source.head().to_string(index=False))",
+   "execution_count": null,
+   "outputs": [],
+   "id": "arduino-01"
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": "## 7.2 Local edge-processing operations, reproduced offline\n\nThe five-sample trailing mean uses five consecutive valid recorded temperatures. The first\nfour results are blank because five observations are not yet available. Temperature change\nis the difference between adjacent valid samples, in degrees C per sample. It is not a rate\nper second without timing information. The rolling sample standard deviation is an additional\ntemperature feature, not an IMU result. All source rows, including repeated rows, are retained.\n\nThe device threshold is strictly greater than 28 C. The guide's 30 C example is also counted\nseparately. No new calibration coefficients or hysteresis are assumed for the recorded statuses.",
+   "id": "arduino-02"
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": "numeric = d[['temperature', 'humidity', 'light_pct', 'motion']].apply(pd.to_numeric, errors='coerce')\nvalid_temp = np.isfinite(numeric.temperature) & numeric.temperature.ne(-999)\nvalid_humidity = np.isfinite(numeric.humidity) & numeric.humidity.between(0, 100)\nvalid_light = np.isfinite(numeric.light_pct) & numeric.light_pct.between(0, 100)\nvalid_motion = numeric.motion.isin([0, 1])\nvalid = valid_temp & valid_humidity & valid_light & valid_motion\nd['passes_numeric_range_checks'] = valid\ntemperature = numeric.temperature.where(valid_temp)\nd['temperature_ma5'] = temperature.rolling(WINDOW, min_periods=WINDOW).mean()\nd['temperature_change_per_sample'] = temperature.diff()\nd['temperature_ma5_change_per_sample'] = d.temperature_ma5.diff()\nd['temperature_std5'] = temperature.rolling(WINDOW, min_periods=WINDOW).std(ddof=1)\nd['high_temperature_28c'] = pd.Series(pd.NA, index=d.index, dtype='boolean')\nd.loc[valid_temp, 'high_temperature_28c'] = temperature.loc[valid_temp].gt(HIGH_THRESHOLD_C)\nd['high_temperature_ma5_28c'] = pd.Series(pd.NA, index=d.index, dtype='boolean')\nready = d.temperature_ma5.notna()\nd.loc[ready, 'high_temperature_ma5_28c'] = d.loc[ready, 'temperature_ma5'].gt(HIGH_THRESHOLD_C)\n\nmotion = numeric.motion.where(valid_motion)\nhigh = d.high_temperature_28c\nd['new_motion_event'] = motion.eq(1) & motion.shift().eq(0)\nd['new_high_temperature_event'] = (high.eq(True) & high.shift().eq(False)).fillna(False)\nmotion_run_starts = motion.eq(1) & ~motion.shift().eq(1)\nhigh_run_starts = high.eq(True) & ~high.shift(fill_value=False).eq(True)\n\nif SAMPLE_INTERVAL_S is not None:\n    if SAMPLE_INTERVAL_S <= 0:\n        raise ValueError('Sample interval must be positive.')\n    d['estimated_time_s'] = (d.sample_number - 1) * SAMPLE_INTERVAL_S\n    d['temperature_change_per_second_assumed_interval'] = d.temperature_change_per_sample / SAMPLE_INTERVAL_S\n\nprint(d[['sample_number', 'temperature', 'temperature_ma5',\n         'temperature_change_per_sample', 'high_temperature_28c']].head(10).to_string(index=False))\nprint('IMU feature: unavailable, no IMU channels supplied.')",
+   "execution_count": null,
+   "outputs": [],
+   "id": "arduino-03"
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": "## 7.3 Python import and descriptive analysis\n\nThis task imports an existing CSV. It does not recapture a live serial connection.\nStandard deviation uses the sample definition with ddof=1. Range checks cover finite\ntemperature (and the known -999 sentinel), humidity 0 to 100%, light 0 to 100%, and binary\nmotion. They cannot establish calibration accuracy, sensor independence or missing samples.\n\nEvent-positive samples and separate event runs are reported independently. A high-temperature\nrun present in the first row has an unknown onset. It is not counted as a new rising edge.",
+   "id": "arduino-04"
+  },
+  {
+   "cell_type": "code",
+   "metadata": {},
+   "source": "statistics = numeric[['temperature', 'humidity', 'light_pct']].agg(['count', 'mean', 'min', 'max', 'std']).T\nstatistics.index.name = 'channel'\nexpected_temp = pd.Series(np.where(numeric.temperature > 28, 'TEMP_HIGH',\n                         np.where(numeric.temperature < 18, 'TEMP_LOW', 'TEMP_NORMAL')), index=d.index)\nexpected_motion = pd.Series(np.where(motion.eq(1), 'MOTION_DETECTED', 'NO_MOTION'), index=d.index)\nsummary = {\n    'source_file': filename,\n    'observations': len(d),\n    'meets_600_row_minimum': len(d) >= 600,\n    'missing_source_cells': int(source.isna().sum().sum()),\n    'rows_flagged_by_numeric_range_checks': int((~valid).sum()),\n    'identical_source_rows_retained': int(source.duplicated().sum()),\n    'measured_duration_seconds': None,\n    'duration_if_one_second_interval_seconds': len(d) - 1,\n    'motion_positive_samples': int(motion.eq(1).sum()),\n    'motion_runs_observed': int(motion_run_starts.sum()),\n    'new_motion_rising_edges': int(d.new_motion_event.sum()),\n    'high_temperature_samples_above_28c': int(high.sum()),\n    'high_temperature_runs_observed': int(high_run_starts.sum()),\n    'high_temperature_active_at_first_sample': bool(high.iloc[0]),\n    'new_high_temperature_rising_edges': int(d.new_high_temperature_event.sum()),\n    'samples_above_30c': int(temperature.gt(30).sum()),\n    'samples_with_motion_and_high_temperature': int((motion.eq(1) & high.fillna(False)).sum()),\n    'samples_with_either_condition': int((motion.eq(1) | high.fillna(False)).sum()),\n    'temperature_status_mismatches_at_28c_18c': int(source.temp_status.ne(expected_temp).sum()),\n    'motion_status_mismatches': int(source.motion_status.ne(expected_motion).sum()),\n    'source_labelled_high_temperature_samples': int(source.temp_status.eq('TEMP_HIGH').sum()),\n    'source_labelled_high_temperature_runs': int((source.temp_status.eq('TEMP_HIGH') & ~source.temp_status.shift().eq('TEMP_HIGH')).sum()),\n    'printed_28c_rows_labelled_high': int((numeric.temperature.eq(28) & source.temp_status.eq('TEMP_HIGH')).sum()),\n    'ma5_warmup_samples': int(d.temperature_ma5.iloc[:WINDOW-1].isna().sum()),\n    'assumed_sample_interval_seconds': SAMPLE_INTERVAL_S,\n}\nstatistics.to_csv(OUT_DIR / 'descriptive_statistics.csv', float_format='%.6f')\nd.to_csv(OUT_DIR / 'sensor_data_processed.csv', index=False, float_format='%.6f')\n(OUT_DIR / 'summary.json').write_text(json.dumps(summary, indent=2))\nprint(statistics.round(4).to_string())\nprint(json.dumps(summary, indent=2))\nprint('Measured duration is unknown. At an assumed 1 Hz, the first-to-last span would be', len(d)-1, 'seconds.')\nprint('Source TEMP_HIGH labels:', summary['source_labelled_high_temperature_samples'])\nprint('Labels at printed 28.0 C:', summary['printed_28c_rows_labelled_high'])\nprint('Rounding or unlogged logic may explain boundary disagreements.')\nsource_high = source.temp_status.eq('TEMP_HIGH')\nsummary['source_labelled_high_temperature_new_edges'] = int((source_high & source_high.shift().eq(False)).sum())\nsummary['source_labelled_high_and_motion_samples'] = int((source_high & motion.eq(1)).sum())\nsummary['source_labelled_high_or_motion_samples'] = int((source_high | motion.eq(1)).sum())\nsummary['recorded_temperature_std_on_ma5_rows'] = float(temperature[d.temperature_ma5.notna()].std(ddof=1))\nsummary['additional_ma5_temperature_std'] = float(d.temperature_ma5.std(ddof=1))\nsummary['statistics'] = statistics.to_dict(orient='index')\nsummary['source_sha256'] = hashlib.sha256(RAW_PATH.read_bytes()).hexdigest()\nsummary['analysis_date'] = '6 November 2026'\nsummary['measured_duration_seconds'] = None\n(OUT_DIR / 'report_summary.json').write_text(json.dumps(summary, indent=2))\nd.to_csv(OUT_DIR / 'cleaned_log.csv', index=False, float_format='%.6f')\n",
+   "execution_count": null,
+   "outputs": [],
+   "id": "arduino-05"
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": "## 7.4 Plots and timing\n\nFive figures are saved in figures/. Existing filenames ending in _vs_time are retained for\nrepository compatibility, but the axes say Sample number because timestamps are absent.\nAn explicitly assumed constant interval can be enabled using SAMPLE_INTERVAL_S.\nIt produces an estimated time axis, not measured timestamps. The raw-versus-filtered filename\nis also retained, while the figure correctly identifies recorded versus additionally filtered temperature.\n",
+   "id": "arduino-06"
+  },
+  {
+   "cell_type": "code",
+   "metadata": {
+    "figure_outputs": [
+     "temp_vs_time.png",
+     "humidity_vs_time.png",
+     "raw_vs_filtered_temp.png",
+     "light_vs_time.png",
+     "motion_events.png"
+    ]
+   },
+   "source": "plt.rcParams.update({'font.family':'DejaVu Sans', 'font.size':10,\n                     'axes.titlesize':15, 'axes.labelsize':11})\nx = d.sample_number if SAMPLE_INTERVAL_S is None else d.estimated_time_s\nxlabel = 'Sample number' if SAMPLE_INTERVAL_S is None else 'Estimated time (s)'\ndef setup_plot(title, ylabel):\n    fig, ax = plt.subplots(figsize=(10.5, 3.6), dpi=160)\n    ax.set(title=title, xlabel=xlabel, ylabel=ylabel)\n    ax.grid(alpha=0.2)\n    ax.spines[['top', 'right']].set_visible(False)\n    ax.set_xlim(float(x.iloc[0]), float(x.iloc[-1]))\n    return fig, ax\ndef save_plot(fig, name):\n    fig.tight_layout()\n    fig.savefig(FIG_DIR / name, dpi=200)\n    plt.show()\n    plt.close(fig)\n\nfig, ax = setup_plot('Temperature', 'Temperature (\u00b0C)')\nax.plot(x, numeric.temperature, color='#126b98', lw=1.1, label='Recorded temperature')\nax.axhline(HIGH_THRESHOLD_C, color='#bc4b37', ls='--', lw=1, label='28\u00b0C threshold')\nax.legend(frameon=False, fontsize=9)\nsave_plot(fig, 'temp_vs_time.png')\n\nfig, ax = setup_plot('Humidity', 'Humidity (%)')\nax.plot(x, numeric.humidity, color='#168277', lw=1.1, label='Humidity')\nax.legend(frameon=False)\nsave_plot(fig, 'humidity_vs_time.png')\n\nfig, ax = setup_plot('Recorded vs filtered temperature', 'Temperature (\u00b0C)')\nax.plot(x, numeric.temperature, color='#8eafc3', lw=0.9, alpha=0.8, label='Recorded')\nax.plot(x, d.temperature_ma5, color='#d97627', lw=1.6, label='Additional 5-sample average')\nax.legend(frameon=False, fontsize=9)\nsave_plot(fig, 'raw_vs_filtered_temp.png')\n\nfig, ax = setup_plot('Light', 'Light (%)')\nax.plot(x, numeric.light_pct, color='#b17d19', lw=1.1, label='Supplied light')\nax.set_ylim(0, 102)\nax.legend(frameon=False)\nsave_plot(fig, 'light_vs_time.png')\n\nfig, ax = setup_plot('Motion', 'Motion')\nax.step(x, motion, where='post', color='#4b7d45', lw=0.9)\nax.fill_between(x, motion, step='post', color='#72a168', alpha=0.25)\nax.set_yticks([0, 1])\nax.set_ylim(-0.08, 1.15)\nsave_plot(fig, 'motion_events.png')",
+   "execution_count": null,
+   "outputs": [],
+   "id": "arduino-07"
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": "## Interpretation\n\nThe source statuses label 235 samples TEMP_HIGH. The strict rule temperature > 28 C identifies\n215 samples. The 20 disagreements all occur at printed 28.0 C and may reflect rounding or device\nlogic not represented in the CSV. Retain both the original labels and the reconstructed flags.\nEvent runs are distinct from positive samples. The first temperature run is already active.\nNo IMU channels or raw temperature are available for the corresponding additional evidence.\n",
+   "id": "arduino-08"
+  }
+ ]
+}

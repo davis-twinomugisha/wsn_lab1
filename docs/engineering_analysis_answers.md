@@ -1,52 +1,29 @@
-# Engineering Analysis Questions (Section 8.1)
+# Engineering analysis questions
 
-Answered against the real Wokwi capture in `data/raw/wokwi_serial_log.csv`
-(723 rows, ~12 minutes, 0 invalid readings, 90 detected events).
+**Q1. Major subsystems and their roles.**
 
-1. **Major subsystems and their roles.** The ESP32 is the controller: it runs
-   the sampling loop, validation, calibration, filtering, and decision logic.
-   The DHT22 handles temperature/humidity sensing, the photoresistor (with
-   its voltage divider) handles light sensing, and the PIR handles motion
-   sensing. The LED is a local visual status indicator (`status == HIGH_TEMP`),
-   the buzzer is a local audible event indicator (`motion == 1`), and the
-   serial/USB link carries the processed rows out for Python analysis.
+Sensors provide environmental signals. The controller acquires and processes them, local indicators provide warnings, serial communication exports observations and Python computes statistics and plots. ESP32 simulation and UNO prototype wiring and firmware are documented separately.
 
-2. **Effective sampling rate of each sensor.** All three are read in the same
-   loop, once per second — 1 Hz for all of them. Confirmed by the capture:
-   723 rows over 722 seconds, sample counter incrementing by exactly 1 each
-   row, no missed or duplicated samples.
+**Q2. Effective sampling rate.**
 
-3. **Which sensor showed the greatest variability, and why.** Temperature:
-   std ≈ 12.1°C, range -5.8°C to 60.8°C — by far the largest, because the
-   slider was deliberately swung to extremes to exercise the `HIGH_TEMP`
-   logic. Light: std ≈ 0.20 (0-1 scale), moderate, from deliberate sweeps.
-   Humidity: std = 0.0 (flat at 40% the whole run) — an artifact of this test
-   run (the humidity slider was never touched), not a real sensor property.
+The supplied file cannot establish an effective rate because it has no timestamps. The ESP32 loop is nominally 1 Hz, with fresh DHT22 readings approximately every two seconds. The UNO loop includes blocking delays and processing, so its counter cannot be assumed to equal elapsed seconds.
 
-4-5. **What did calibration reveal? Did it reduce MAE/RMSE?** Pending —
-   `tempCalSlope`/`tempCalOffset` are still placeholders (1.0 / 0.0); no
-   paired sensor-vs-reference-instrument readings exist yet from the real
-   hardware build. `python/calibration.ipynb` is ready to fit the line and
-   compute before/after MAE/RMSE as soon as that data exists.
+**Q3. Greatest variability.**
 
-6. **Effect of filtering on noise and responsiveness.** The 5-sample moving
-   average (`temp_ma`) smooths the sharp, step-like jumps from slider moves,
-   taking ~5 seconds to catch up after each change. Wokwi's simulated sensor
-   adds no random jitter, so here the filter mainly rounded off deliberate
-   step changes rather than suppressing noise; on real hardware, with genuine
-   DHT22 sample-to-sample jitter, the same filter would smooth that too, at
-   the same few-second lag cost.
+The supplied light channel spans 15.08–100.00%, with standard deviation 18.860 percentage points. Temperature spans 26.0–29.0 °C, with standard deviation 0.874 °C; reported humidity spans 46.0–47.5%, with standard deviation 0.245 percentage points. These describe within-channel spread. Standard deviations with different units are not a direct ranking of sensor noise.
 
-7. **What should be processed locally vs. transmitted?** Locally: sampling,
-   plausibility checks, calibration, moving average, rate-of-change, and the
-   threshold decision — cheap arithmetic, and it catches bad readings before
-   they'd ever need to be sent. Transmitted: the cleaned, decision-ready row
-   (calibrated value, filtered value, status, motion flag) rather than raw
-   sensor counts.
+**Q4–Q5. Systematic error revealed by calibration; change in MAE and RMSE.**
 
-8. **Effect on energy if every raw measurement were transmitted.** Radio
-   transmission is typically the most power-hungry operation on a
-   microcontroller. Transmitting every 1 Hz raw reading instead of a
-   filtered/reduced summary would key up the radio far more often, draining
-   a battery-powered node faster and adding unnecessary network traffic —
-   the core argument for doing edge processing at all.
+The two supplied calibration pairs show the prototype reading 1.2 and 0.7 °C below the reference. Their fitted +0.95 °C offset reduces same-pair MAE from 0.950 to 0.250 °C and RMSE from 0.982 to 0.250 °C. More points and held-out reference readings are needed to assess accuracy beyond those fitting pairs.
+
+**Q6. Effect of filtering.**
+
+Over the 716 samples with complete averaging windows, recorded-temperature standard deviation is 0.874 °C, compared with 0.395 °C after additional averaging. This demonstrates smoothing of the supplied sequence, not an isolated measurement of noise rejection. A five-sample average retains earlier readings and introduces response lag. Seconds of delay cannot be measured without timestamps.
+
+**Q7. Edge vs. transmitted information.**
+
+Immediate validity checks, conversion, calibration, filtering and alarm decisions should run locally. A deployed system can transmit periodic summaries and event records, while retaining selected raw and validity data for diagnosis. The current prototype exports serial rows and does not implement a wireless link.
+
+**Q8. Energy if every raw sample were transmitted.**
+
+Frequent wireless transmissions can increase radio energy and network traffic. For illustration, 50 bytes per row at 1 Hz is 4.32 MB/day; one such row every five seconds is 0.864 MB/day before protocol overhead. These are assumed data-volume calculations, not measured packet sizes or battery-life results for this serial-only recording.
